@@ -1,0 +1,51 @@
+import openai
+import pinecone
+import json
+from flask import Flask, request, jsonify
+
+# Configurar a API do OpenAI (usar GPT-4)
+OPENAI_API_KEY = "SUA_CHAVE_OPENAI"
+openai.api_key = OPENAI_API_KEY
+
+# Configurar Pinecone para armazenar memórias
+PINECONE_API_KEY = "SUA_CHAVE_PINECONE"
+pinecone.init(api_key=PINECONE_API_KEY, environment="us-east1-gcp")
+index = pinecone.Index("memoria-luiz-1.0")
+
+# Criar a aplicação Flask para rodar online
+app = Flask(__name__)
+
+# Função para recuperar memória
+def recuperar_memoria(pergunta):
+    memoria = index.query(pergunta, top_k=5, include_metadata=True)
+    return "\n".join([m["metadata"]["resposta"] for m in memoria["matches"]])
+
+# Função para salvar memória
+def salvar_memoria(pergunta, resposta):
+    index.upsert([(pergunta, {"resposta": resposta})])
+
+# Função principal do chatbot
+def chatbot(pergunta):
+    memoria = recuperar_memoria(pergunta)
+    resposta = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "Você é Luiz 1.0, um assistente que aprende com o usuário."},
+            {"role": "user", "content": f"{memoria}\n{pergunta}"}
+        ]
+    )
+    resposta_texto = resposta["choices"][0]["message"]["content"]
+    salvar_memoria(pergunta, resposta_texto)
+    return resposta_texto
+
+# Criar uma API para interagir com Luiz 1.0
+@app.route("/chat", methods=["POST"])
+def chat():
+    dados = request.get_json()
+    pergunta = dados.get("pergunta")
+    resposta = chatbot(pergunta)
+    return jsonify({"resposta": resposta})
+
+# Rodar o servidor
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
